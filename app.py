@@ -86,7 +86,7 @@ if st.sidebar.button("Analyze Stock"):
                 st.metric("Latest H&S Head Price", f"${latest_pattern['head_price']:.2f}")
                 st.metric("Neckline", f"${latest_pattern['neckline']:.2f}")
                 st.metric("Bearish Target", f"${target:.2f}")
-                st.info("Bearish signal! Wait for neckline break to sell/short.")
+                st.info("**Bearish signal!** Wait for neckline break to sell/short.")
             else:
                 st.warning("No H&S patterns found. Try a volatile stock like TSLA!")
         
@@ -106,5 +106,36 @@ if st.sidebar.button("Analyze Stock"):
                         data_clean.loc[p['head_date'],'High'],
                         data_clean.loc[p['right_shoulder'],'High']],
                        color='purple', s=120, marker='^', zorder=6)
-            ax.text(p['head_date'], p['head_price'] + (data_clean['Close'].max()*0.02),
-                    'H&S', fontsize=14
+            
+            # Fixed line: Added missing )
+            ax.text(p['head_date'], p['head_price'] + (data_clean['Close'].max() * 0.02),
+                    'H&S', fontsize=14, color='purple', weight='bold', ha='center')
+            
+            # Neckline
+            ax.hlines(p['neckline'], p['left_shoulder'], p['right_shoulder'],
+                      color='purple', linestyle='--', linewidth=2, label='Neckline' if p == patterns[0] else "")
+        
+        ax.set_title(f"{ticker} – Head & Shoulders Detection ({period})", fontsize=16)
+        ax.set_xlabel("Date")
+        ax.set_ylabel("Price ($)")
+        ax.legend()
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        
+        # Save to bytes for download
+        buf = io.BytesIO()
+        plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+        buf.seek(0)
+        
+        st.pyplot(fig)
+        st.download_button("Download Chart PNG", buf.getvalue(), f"{ticker}_HS_{period}.png", "image/png")
+        
+        # List patterns
+        if patterns:
+            st.subheader("Detected Patterns")
+            for p in patterns:
+                st.write(f"**Head:** {p['head_date'].date()} | Price: ${p['head_price']:.2f} | Neckline: ${p['neckline']:.2f}")
+
+# Footer
+st.sidebar.markdown("---")
+st.sidebar.markdown("Built with Streamlit")
