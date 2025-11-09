@@ -7,135 +7,204 @@ from scipy.signal import argrelextrema
 import ta
 import io
 
-# Page config
-st.set_page_config(page_title="Stock Pattern Detector", layout="wide")
-st.title("Stock Technical Analysis - Head & Shoulders Detector")
+# === PAGE CONFIG ===
+st.set_page_config(page_title="Pro Pattern Detector", layout="wide")
+st.title("Advanced Stock & Crypto Pattern Detector")
+st.markdown("*Head & Shoulders • Bull/Bear Flags • Breakouts • Hourly/Daily/Weekly/Monthly*")
 
-# Sidebar inputs
+# === SIDEBAR ===
 st.sidebar.header("Settings")
-ticker = st.sidebar.text_input("Ticker", value="NVDA", help="e.g., AAPL, TSLA, BTC-USD")
-period = st.sidebar.selectbox("Timeframe", ["1mo", "3mo", "6mo", "1y", "2y", "5y"], index=4)
+ticker = st.sidebar.text_input("Ticker", value="TSLA", help="e.g., AAPL, BTC-USD, NVDA")
 
-if st.sidebar.button("Analyze Stock"):
-    with st.spinner("Fetching data..."):
-        # Download data
-        data = yf.download(ticker, period=period, interval="1d", auto_adjust=False)
+# Timeframe mapping
+timeframe_map = {
+    "Hourly (1h)": ("1h", "60d"),
+    "Hourly (2h)": ("2h", "90d"),
+    "Hourly (4h)": ("4h", "180d"),
+    "Daily": ("1d", "2y"),
+    "Weekly": ("1wk", "5y"),
+    "Monthly": ("1mo", "10y"),
+    "1 Month": ("1d", "1mo"),
+    "3 Months": ("1d", "3mo"),
+    "6 Months": ("1d", "6mo"),
+    "1 Year": ("1d", "1y"),
+    "2 Years": ("1d", "2y"),
+    "5 Years": ("1d", "5y")
+}
+
+selected_label = st.sidebar.selectbox(
+    "Timeframe",
+    options=list(timeframe_map.keys()),
+    index=3  # Default: Daily
+)
+
+if st.sidebar.button("Analyze"):
+    with st.spinner("Fetching data & detecting patterns..."):
+        interval, period = timeframe_map[selected_label]
+        order = 8 if "h" in interval else 5  # Smoother swings on hourly
+
+        # === DOWNLOAD DATA ===
+        data = yf.download(ticker, period=period, interval=interval, auto_adjust=False)
         if data.empty:
-            st.error("No data found. Try another ticker!")
+            st.error("No data found. Try another ticker or timeframe.")
             st.stop()
-        
+
         data = data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
         data.dropna(inplace=True)
-        
-        # Flatten columns if MultiIndex
+
+        # Flatten MultiIndex
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = [col[0] for col in data.columns]
-        
+
         data.reset_index(inplace=True)
         if 'Date' in data.columns:
             data.set_index('Date', inplace=True)
-        
-        # Add indicators
-        close_series = data['Close'].squeeze()
-        data['SMA_20'] = ta.trend.sma_indicator(close_series, window=20)
-        data['RSI'] = ta.momentum.rsi(close_series, window=14)
-        data_clean = data.dropna(subset=['SMA_20', 'RSI']).copy()
-        
-        if data_clean.empty:
-            st.error("Not enough data for indicators. Try a longer timeframe!")
+
+        # === INDICATORS ===
+        close = data['Close'].squeeze()
+        data['SMA_20'] = ta.trend.sma_indicator(close, window=20)
+        data['SMA_50'] = ta.trend.sma_indicator(close, window=50)
+        data['RSI'] = ta.momentum.rsi(close, window=14)
+        data_clean = data.dropna().copy()
+
+        if len(data_clean) < 50:
+            st.error("Not enough data. Try a longer timeframe.")
             st.stop()
-        
-        # Find swings
-        order = 5
+
+        # === SWING POINTS ===
         high_idx = argrelextrema(data_clean['High'].values, np.greater, order=order)[0]
         low_idx = argrelextrema(data_clean['Low'].values, np.less, order=order)[0]
-        
-        # Detect H&S
+
+        # === PATTERN DETECTION ===
         patterns = []
+
+        # 1. Head & Shoulders (Bearish)
         highs = data_clean.iloc[high_idx]
-        dates = highs.index
-        
         for i in range(2, len(highs) - 2):
-            ls = highs['High'].iloc[i-2]
-            hd = highs['High'].iloc[i]
-            rs = highs['High'].iloc[i+1]
-            
-            if hd > ls and hd > rs and abs(ls - rs) / hd < 0.05:
-                neck_lows = data_clean.loc[dates[i-2]:dates[i+1], 'Low']
+            ls, hd, rs = highs['High'].iloc[i-2:i+1]
+            if hd > ls and hd > rs and abs(ls - rs) / hd < 0.07:
+                neck_lows = data_clean.loc[highs.index[i-2]:highs.index[i+1], 'Low']
                 neckline = neck_lows.min()
-                
                 patterns.append({
-                    "head_date": dates[i],
-                    "head_price": hd,
+                    "type": "Head & Shoulders",
+                    "date": highs.index[i],
+                    "price": hd,
                     "neckline": neckline,
-                    "left_shoulder": dates[i-2],
-                    "right_shoulder": dates[i+1]
+                    "color": "purple",
+                    "target": neckline - (hd - neckline),
+                    "signal": "Bearish"
                 })
-        
-        # Display results
+
+        # 2. Bull Flag
+        lows = data_clean.iloc[low_idx]
+        for i in range(1, len(lows) - 12):
+            pole_low = lows['Low'].iloc[i]
+            pole_high = data_clean.loc[lows.index[i]:lows.index[i+12], 'High'].max()
+            if pole_high > pole_low * 1.2:
+                flag_high = data_clean.loc[lows.index[i+6]:lows.index[i+12], 'High'].max()
+                flag_low = data_clean.loc[lows.index[i+6]:lows.index[i+12], 'Low'].min()
+                if (flag_high - flag_low) < (pole_high - pole_low) * 0.5:
+                    breakout = data_clean['Close'].iloc[-1] > flag_high
+                    patterns.append({
+                        "type": "Bull Flag",
+                        "date": lows.index[i+9],
+                        "price": flag_high,
+                        "color": "lime",
+                        "target": flag_high + (pole_high - pole_low),
+                        "signal": "Bullish",
+                        "breakout": breakout
+                    })
+
+        # 3. Bear Flag
+        for i in range(1, len(highs) - 12):
+            pole_high = highs['High'].iloc[i]
+            pole_low = data_clean.loc[highs.index[i]:highs.index[i+12], 'Low'].min()
+            if pole_high > pole_low * 1.2:
+                flag_high = data_clean.loc[highs.index[i+6]:highs.index[i+12], 'High'].max()
+                flag_low = data_clean.loc[highs.index[i+6]:highs.index[i+12], 'Low'].min()
+                if (flag_high - flag_low) < (pole_high - pole_low) * 0.5:
+                    breakdown = data_clean['Close'].iloc[-1] < flag_low
+                    patterns.append({
+                        "type": "Bear Flag",
+                        "date": highs.index[i+9],
+                        "price": flag_low,
+                        "color": "red",
+                        "target": flag_low - (pole_high - pole_low),
+                        "signal": "Bearish",
+                        "breakout": breakdown
+                    })
+
+        # 4. Volume Breakout
+        avg_vol = data_clean['Volume'].rolling(20).mean().iloc[-1]
+        if (data_clean['Volume'].iloc[-1] > avg_vol * 2 and
+            data_clean['Close'].iloc[-1] > data_clean['High'].iloc[-10:-1].max()):
+            patterns.append({
+                "type": "Volume Breakout",
+                "date": data_clean.index[-1],
+                "price": data_clean['Close'].iloc[-1],
+                "color": "gold",
+                "target": data_clean['Close'].iloc[-1] * 1.1,
+                "signal": "Bullish"
+            })
+
+        # === DISPLAY RESULTS ===
         col1, col2 = st.columns(2)
         with col1:
             st.metric("Data Points", len(data_clean))
-            st.metric("Swing Highs Found", len(high_idx))
-            st.metric("H&S Patterns", len(patterns))
-        
+            st.metric("Patterns Found", len(patterns))
         with col2:
-            if patterns:
-                latest_pattern = patterns[-1]
-                target = latest_pattern['neckline'] - (latest_pattern['head_price'] - latest_pattern['neckline'])
-                st.metric("Latest H&S Head Price", f"${latest_pattern['head_price']:.2f}")
-                st.metric("Neckline", f"${latest_pattern['neckline']:.2f}")
-                st.metric("Bearish Target", f"${target:.2f}")
-                st.info("**Bearish signal!** Wait for neckline break to sell/short.")
-            else:
-                st.warning("No H&S patterns found. Try a volatile stock like TSLA!")
-        
-        # Plot chart
+            current_price = data_clean['Close'].iloc[-1]
+            st.metric("Current Price", f"${current_price:.2f}")
+            active = [p for p in patterns if "breakout" not in p or p["breakout"]]
+            st.metric("Active Signals", len(active))
+
+        # === PLOT CHART ===
         fig, ax = plt.subplots(figsize=(16, 8))
         ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black', linewidth=1)
         ax.plot(data_clean['SMA_20'], label='SMA 20', color='orange', alpha=0.7)
-        
-        # Swing highs
-        ax.scatter(data_clean.iloc[high_idx].index, data_clean.iloc[high_idx]['High'],
-                   color='red', marker='v', s=80, label='Swing High', zorder=5)
-        
-        # H&S markers
+        ax.plot(data_clean['SMA_50'], label='SMA 50', color='blue', alpha=0.7)
+
+        # Mark patterns
         for p in patterns:
-            ax.scatter([p['left_shoulder'], p['head_date'], p['right_shoulder']],
-                       [data_clean.loc[p['left_shoulder'],'High'],
-                        data_clean.loc[p['head_date'],'High'],
-                        data_clean.loc[p['right_shoulder'],'High']],
-                       color='purple', s=120, marker='^', zorder=6)
-            
-            # Fixed line: Added missing )
-            ax.text(p['head_date'], p['head_price'] + (data_clean['Close'].max() * 0.02),
-                    'H&S', fontsize=14, color='purple', weight='bold', ha='center')
-            
-            # Neckline
-            ax.hlines(p['neckline'], p['left_shoulder'], p['right_shoulder'],
-                      color='purple', linestyle='--', linewidth=2, label='Neckline' if p == patterns[0] else "")
-        
-        ax.set_title(f"{ticker} – Head & Shoulders Detection ({period})", fontsize=16)
-        ax.set_xlabel("Date")
+            ax.scatter(p['date'], p['price'], color=p['color'], s=150, zorder=6, edgecolors='black', linewidth=1)
+            status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
+            ax.text(p['date'], p['price'], f" {p['type']}\n{status}", 
+                    fontsize=9, color=p['color'], weight='bold', ha='center', va='bottom')
+
+            # Target line
+            if 'target' in p:
+                ax.hlines(p['target'], p['date'], data_clean.index[-1], 
+                         color=p['color'], linestyle='--', alpha=0.7, linewidth=1)
+
+        ax.set_title(f"{ticker} • {selected_label} • {len(patterns)} Patterns Detected", fontsize=16)
         ax.set_ylabel("Price ($)")
         ax.legend()
         ax.grid(True, alpha=0.3)
         plt.tight_layout()
-        
-        # Save to bytes for download
+
+        # === SAVE & DOWNLOAD ===
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
         buf.seek(0)
-        
+
         st.pyplot(fig)
-        st.download_button("Download Chart PNG", buf.getvalue(), f"{ticker}_HS_{period}.png", "image/png")
-        
-        # List patterns
+        st.download_button(
+            "Download Chart PNG",
+            buf.getvalue(),
+            f"{ticker}_{selected_label.replace(' ', '')}_Patterns.png",
+            "image/png"
+        )
+
+        # === LIST PATTERNS ===
         if patterns:
             st.subheader("Detected Patterns")
             for p in patterns:
-                st.write(f"**Head:** {p['head_date'].date()} | Price: ${p['head_price']:.2f} | Neckline: ${p['neckline']:.2f}")
+                status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
+                st.write(f"**{p['type']}** • {p['date'].date()} • Price: ${p['price']:.2f} → Target: ${p['target']:.2f} • *{status}*")
 
-# Footer
+        else:
+            st.info("No patterns found. Try `TSLA`, `NVDA`, or `BTC-USD` on **Hourly** or **Daily**.")
+
+# === FOOTER ===
 st.sidebar.markdown("---")
-st.sidebar.markdown("Built with Streamlit")
+st.sidebar.markdown("Pro Pattern Detector v2.0")
