@@ -143,8 +143,8 @@ if st.sidebar.button("Analyze"):
                 "date": data_clean.index[-1],
                 "price": data_clean['Close'].iloc[-1],
                 "color": "gold",
-                "target": data_clean['Close'].iloc[-1] * 1.1,
                 "signal": "Bullish"
+                # No target here — will be skipped safely
             })
 
         # === DISPLAY RESULTS ===
@@ -173,38 +173,4 @@ if st.sidebar.button("Analyze"):
 
             # Target line
             if 'target' in p:
-                ax.hlines(p['target'], p['date'], data_clean.index[-1], 
-                         color=p['color'], linestyle='--', alpha=0.7, linewidth=1)
-
-        ax.set_title(f"{ticker} • {selected_label} • {len(patterns)} Patterns Detected", fontsize=16)
-        ax.set_ylabel("Price ($)")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
-
-        # === SAVE & DOWNLOAD ===
-        buf = io.BytesIO()
-        plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
-        buf.seek(0)
-
-        st.pyplot(fig)
-        st.download_button(
-            "Download Chart PNG",
-            buf.getvalue(),
-            f"{ticker}_{selected_label.replace(' ', '')}_Patterns.png",
-            "image/png"
-        )
-
-        # === LIST PATTERNS ===
-        if patterns:
-            st.subheader("Detected Patterns")
-            for p in patterns:
-                status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
-                st.write(f"**{p['type']}** • {p['date'].date()} • Price: ${p['price']:.2f} → Target: ${p['target']:.2f} • *{status}*")
-
-        else:
-            st.info("No patterns found. Try `TSLA`, `NVDA`, or `BTC-USD` on **Hourly** or **Daily**.")
-
-# === FOOTER ===
-st.sidebar.markdown("---")
-st.sidebar.markdown("Pro Pattern Detector v2.0")
+                ax.hlines(p['target'], p['date'], data_clean.index[-1],
