@@ -42,32 +42,27 @@ if st.sidebar.button("Analyze"):
             st.error("No data. Try another ticker.")
             st.stop()
 
-        # === ULTIMATE DATE FIX ===
         data = data.copy()
 
-        # Flatten MultiIndex
+        # === FIX COLUMNS & INDEX ===
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = [col[0] for col in data.columns]
 
-        # Reset index to access Date
         data = data.reset_index()
 
-        # Find Date column (any variation)
+        # Find Date column
         date_col = None
         for col in data.columns:
             if str(col).lower() in ['date', 'datetime', 'time', 'index']:
                 date_col = col
                 break
-
         if date_col is None:
-            st.error("No Date column found. Data structure unknown.")
+            st.error("No Date column found.")
             st.stop()
 
-        # Rename and set index
         data = data.rename(columns={date_col: 'Date'})
         data.set_index('Date', inplace=True)
 
-        # Keep only OHLCV
         data = data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
         data.dropna(inplace=True)
 
@@ -138,39 +133,43 @@ if st.sidebar.button("Analyze"):
             active = len([p for p in patterns if "breakout" not in p or p["breakout"]])
             st.metric("Live", active)
 
-        # === PLOT ===
-       # === PLOT ===
-fig, ax = plt.subplots(figsize=(16, 8))
-ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black', linewidth=1.2)
-ax.plot(data_clean['SMA_20'], label='SMA 20', color='orange', alpha=0.7, linewidth=1.5)
-ax.plot(data_clean['SMA_50'], label='SMA 50', color='blue', alpha=0.7, linewidth=1.5)
+        # === PLOT WITH CLEAN LABELS ===
+        fig, ax = plt.subplots(figsize=(16, 8))
+        ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black', linewidth=1.2)
+        ax.plot(data_clean['SMA_20'], label='SMA 20', color='orange', alpha=0.7, linewidth=1.5)
+        ax.plot(data_clean['SMA_50'], label='SMA 50', color='blue', alpha=0.7, linewidth=1.5)
 
-# === PLOT MARKERS WITH CLEAR LABELS ===
-for p in patterns:
-    # Larger, bold dot
-    ax.scatter(p['date'], p['price'], color=p['color'], s=200, zorder=6, 
-               edgecolors='black', linewidth=1.5)
+        # === MARKERS & LABELS (TEXT DOES NOT COVER DOT) ===
+        price_range = data_clean['High'].max() - data_clean['Low'].min()
+        label_offset = price_range * 0.03  # 3% above price
 
-    # Text above dot with white background
-    status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
-    label = f"{p['type']}\n{status}"
-    
-    ax.text(p['date'], p['price'] + (data_clean['High'].max() - data_clean['Low'].min()) * 0.02,
-            label, fontsize=10, color='black', weight='bold',
-            ha='center', va='bottom',
-            bbox=dict(boxstyle="round,pad=0.3", facecolor='white', edgecolor='black', linewidth=1),
-            zorder=7)
+        for p in patterns:
+            # Large, bold dot
+            ax.scatter(p['date'], p['price'], color=p['color'], s=250, zorder=6,
+                       edgecolors='black', linewidth=2)
 
-    # Target line
-    if 'target' in p:
-        ax.hlines(p['target'], p['date'], data_clean.index[-1], 
-                  color=p['color'], linestyle='--', alpha=0.7, linewidth=1.5)
+            # Label above dot with white box
+            status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
+            label = f"{p['type']}\n{status}"
 
-ax.set_title(f"{ticker} • {selected_label} • {len(patterns)} Patterns", fontsize=16, fontweight='bold')
-ax.set_ylabel("Price ($)", fontsize=12)
-ax.legend(fontsize=10)
-ax.grid(True, alpha=0.3)
-plt.tight_layout()
+            ax.text(p['date'], p['price'] + label_offset,
+                    label, fontsize=11, color='black', weight='bold',
+                    ha='center', va='bottom',
+                    bbox=dict(boxstyle="round,pad=0.4", facecolor='white', edgecolor='black', linewidth=1.2),
+                    zorder=7)
+
+            # Target line
+            if 'target' in p:
+                ax.hlines(p['target'], p['date'], data_clean.index[-1],
+                          color=p['color'], linestyle='--', alpha=0.8, linewidth=2)
+
+        ax.set_title(f"{ticker} • {selected_label} • {len(patterns)} Patterns", fontsize=16, fontweight='bold')
+        ax.set_ylabel("Price ($)", fontsize=12)
+        ax.legend(fontsize=10)
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+
+        # === SAVE & DOWNLOAD ===
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
         buf.seek(0)
@@ -178,15 +177,16 @@ plt.tight_layout()
         st.pyplot(fig)
         st.download_button("Download Chart", buf.getvalue(), f"{ticker}_{selected_label}.png", "image/png")
 
+        # === LIST PATTERNS ===
         if patterns:
-            st.subheader("Patterns")
+            st.subheader("Detected Patterns")
             for p in patterns:
                 t = f" → ${p['target']:.2f}" if 'target' in p else ""
                 s = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
                 st.write(f"**{p['type']}** • {p['date'].date()} • ${p['price']:.2f}{t} • *{s}*")
         else:
-            st.info("No patterns. Try `TSLA` or `BTC-USD`.")
+            st.info("No patterns found. Try `TSLA`, `NVDA`, or `BTC-USD`.")
 
 # === FOOTER ===
 st.sidebar.markdown("---")
-st.sidebar.markdown("Pro Pattern Detector v7.0")
+st.sidebar.markdown("Pattern Detector Pro v8.0")
