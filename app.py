@@ -139,24 +139,38 @@ if st.sidebar.button("Analyze"):
             st.metric("Live", active)
 
         # === PLOT ===
-        fig, ax = plt.subplots(figsize=(16, 8))
-        ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black')
-        ax.plot(data_clean['SMA_20'], label='SMA 20', color='orange', alpha=0.7)
-        ax.plot(data_clean['SMA_50'], label='SMA 50', color='blue', alpha=0.7)
+       # === PLOT ===
+fig, ax = plt.subplots(figsize=(16, 8))
+ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black', linewidth=1.2)
+ax.plot(data_clean['SMA_20'], label='SMA 20', color='orange', alpha=0.7, linewidth=1.5)
+ax.plot(data_clean['SMA_50'], label='SMA 50', color='blue', alpha=0.7, linewidth=1.5)
 
-        for p in patterns:
-            ax.scatter(p['date'], p['price'], color=p['color'], s=150, zorder=6)
-            status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
-            ax.text(p['date'], p['price'], f" {p['type']}\n{status}", fontsize=9, color=p['color'], weight='bold', ha='center')
-            if 'target' in p:
-                ax.hlines(p['target'], p['date'], data_clean.index[-1], color=p['color'], linestyle='--', alpha=0.7)
+# === PLOT MARKERS WITH CLEAR LABELS ===
+for p in patterns:
+    # Larger, bold dot
+    ax.scatter(p['date'], p['price'], color=p['color'], s=200, zorder=6, 
+               edgecolors='black', linewidth=1.5)
 
-        ax.set_title(f"{ticker} • {selected_label} • {len(patterns)} Patterns")
-        ax.set_ylabel("Price")
-        ax.legend()
-        ax.grid(True, alpha=0.3)
-        plt.tight_layout()
+    # Text above dot with white background
+    status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
+    label = f"{p['type']}\n{status}"
+    
+    ax.text(p['date'], p['price'] + (data_clean['High'].max() - data_clean['Low'].min()) * 0.02,
+            label, fontsize=10, color='black', weight='bold',
+            ha='center', va='bottom',
+            bbox=dict(boxstyle="round,pad=0.3", facecolor='white', edgecolor='black', linewidth=1),
+            zorder=7)
 
+    # Target line
+    if 'target' in p:
+        ax.hlines(p['target'], p['date'], data_clean.index[-1], 
+                  color=p['color'], linestyle='--', alpha=0.7, linewidth=1.5)
+
+ax.set_title(f"{ticker} • {selected_label} • {len(patterns)} Patterns", fontsize=16, fontweight='bold')
+ax.set_ylabel("Price ($)", fontsize=12)
+ax.legend(fontsize=10)
+ax.grid(True, alpha=0.3)
+plt.tight_layout()
         buf = io.BytesIO()
         plt.savefig(buf, format='png', dpi=300, bbox_inches='tight')
         buf.seek(0)
