@@ -6,17 +6,17 @@ import matplotlib.pyplot as plt
 from scipy.signal import argrelextrema
 import ta
 import io
-from matplotlib.dates import HourLocator, MinuteLocator, DateFormatter
+from matplotlib.dates import AutoDateLocator, DateFormatter
 import matplotlib.ticker as mticker
 
 # === PAGE CONFIG ===
 st.set_page_config(page_title="Pattern Detector Pro", layout="wide")
 st.title("Pattern Detector Pro")
-st.markdown("*H&S • Flags • Breakouts • Hourly Ticks Fixed*")
+st.markdown("*H&S • Flags • Breakouts • Clean X-Axis Fixed*")
 
 # === SIDEBAR ===
 st.sidebar.header("Settings")
-ticker = st.sidebar.text_input("Ticker", value="TSLA", help="e.g., AAPL, BTC-USD")
+ticker = st.sidebar.text_input("Ticker", value="AAPL", help="e.g., AAPL, TSLA, BTC-USD")
 
 timeframe_map = {
     "5-Minute": ("5m", "5d"),
@@ -33,7 +33,7 @@ timeframe_map = {
     "2y": ("1d", "2y"),
     "5y": ("1d", "5y")
 }
-selected_label = st.sidebar.selectbox("Timeframe", list(timeframe_map.keys()), index=1)  # Default: Hourly (1h)
+selected_label = st.sidebar.selectbox("Timeframe", list(timeframe_map.keys()), index=1)
 
 if st.sidebar.button("Analyze"):
     with st.spinner("Loading..."):
@@ -134,7 +134,7 @@ if st.sidebar.button("Analyze"):
             active = len([p for p in patterns if "breakout" not in p or p["breakout"]])
             st.metric("Live", active)
 
-        # === PLOT WITH HOURLY TICKS ===
+        # === PLOT WITH CLEAN X-AXIS ===
         fig, ax = plt.subplots(figsize=(16, 8))
 
         ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black', linewidth=1.2)
@@ -159,22 +159,22 @@ if st.sidebar.button("Analyze"):
                 ax.hlines(p['target'], p['date'], data_clean.index[-1],
                           color=p['color'], linestyle='--', alpha=0.8, linewidth=2)
 
-        # === SMART X-AXIS WITH HOURLY TICKS ===
-        if interval == "5m":
-            ax.xaxis.set_major_locator(MinuteLocator(interval=30))
-            ax.xaxis.set_major_formatter(DateFormatter('%H:%M'))
-        elif "h" in interval:
-            # Hourly: show every 2-4 hours
-            hours = 4 if "1h" in interval else 8 if "2h" in interval else 12
-            ax.xaxis.set_major_locator(HourLocator(interval=hours))
-            ax.xaxis.set_major_formatter(DateFormatter('%m-%d %H:%M'))
-        elif interval == "1d":
-            ax.xaxis.set_major_locator(mticker.MultipleLocator(5))
-            ax.xaxis.set_major_formatter(DateFormatter('%m-%d'))
-        else:
-            ax.xaxis.set_major_locator(mticker.AutoDateLocator(maxticks=8))
-            ax.xaxis.set_major_formatter(DateFormatter('%Y-%m'))
+        # === SMART X-AXIS (NO OVERFLOW) ===
+        locator = AutoDateLocator(maxticks=10)
+        ax.xaxis.set_major_locator(locator)
 
+        if interval == "5m":
+            formatter = DateFormatter('%H:%M')
+        elif "h" in interval:
+            formatter = DateFormatter('%m-%d %H:%M')
+        elif interval == "1d":
+            formatter = DateFormatter('%m-%d')
+        else:
+            formatter = DateFormatter('%Y-%m')
+
+        ax.xaxis.set_major_formatter(formatter)
+
+        # Only rotate if needed
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=45, ha='right')
 
         # === SMART Y-AXIS ===
@@ -195,11 +195,11 @@ if st.sidebar.button("Analyze"):
         ax.yaxis.set_major_locator(mticker.MultipleLocator(tick_spacing))
 
         # === FINALIZE ===
-        ax.set_title(f"{ticker} • {selected_label} • {len(patterns)} Patterns", fontsize=16, fontweight='bold')
+        ax.set_title(f"{ticker.upper()} • {selected_label} • {len(patterns)} Patterns", fontsize=16, fontweight='bold')
         ax.set_ylabel("Price ($)", fontsize=12)
         ax.legend(fontsize=10)
         ax.grid(True, alpha=0.3)
-        plt.tight_layout()
+        plt.tight_layout(pad=3.0)  # Extra padding to prevent cutoff
 
         # === SAVE & DOWNLOAD ===
         buf = io.BytesIO()
@@ -218,8 +218,8 @@ if st.sidebar.button("Analyze"):
                 time_str = p['date'].strftime('%m-%d %H:%M') if 'h' in interval or 'm' in interval else p['date'].strftime('%m-%d')
                 st.write(f"**{p['type']}** • {time_str} • ${p['price']:.2f}{t} • *{s}*")
         else:
-            st.info("No patterns. Try `TSLA` or `NVDA`.")
+            st.info("No patterns found. Try `TSLA` or `NVDA`.")
 
 # === FOOTER ===
 st.sidebar.markdown("---")
-st.sidebar.markdown("Pattern Detector Pro v10.0")
+st.sidebar.markdown("Pattern Detector Pro v11.0")
