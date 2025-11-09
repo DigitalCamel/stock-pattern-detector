@@ -6,21 +6,20 @@ import matplotlib.pyplot as plt
 from scipy.signal import argrelextrema
 import ta
 import io
-from matplotlib.dates import DateFormatter, MinuteLocator
+from matplotlib.dates import HourLocator, MinuteLocator, DateFormatter
 import matplotlib.ticker as mticker
 
 # === PAGE CONFIG ===
 st.set_page_config(page_title="Pattern Detector Pro", layout="wide")
 st.title("Pattern Detector Pro")
-st.markdown("*H&S • Flags • Breakouts • 5-Min Ticks on Hourly*")
+st.markdown("*H&S • Flags • Breakouts • Hourly Ticks Fixed*")
 
 # === SIDEBAR ===
 st.sidebar.header("Settings")
 ticker = st.sidebar.text_input("Ticker", value="TSLA", help="e.g., AAPL, BTC-USD")
 
-# Updated: Added 5-minute interval
 timeframe_map = {
-    "5-Minute": ("5m", "5d"),        # 5-minute bars, last 5 days
+    "5-Minute": ("5m", "5d"),
     "Hourly (1h)": ("1h", "60d"),
     "Hourly (2h)": ("2h", "90d"),
     "Hourly (4h)": ("4h", "180d"),
@@ -34,7 +33,7 @@ timeframe_map = {
     "2y": ("1d", "2y"),
     "5y": ("1d", "5y")
 }
-selected_label = st.sidebar.selectbox("Timeframe", list(timeframe_map.keys()), index=0)  # Default: 5-Min
+selected_label = st.sidebar.selectbox("Timeframe", list(timeframe_map.keys()), index=1)  # Default: Hourly (1h)
 
 if st.sidebar.button("Analyze"):
     with st.spinner("Loading..."):
@@ -135,7 +134,7 @@ if st.sidebar.button("Analyze"):
             active = len([p for p in patterns if "breakout" not in p or p["breakout"]])
             st.metric("Live", active)
 
-        # === PLOT WITH 5-MIN TICKS ===
+        # === PLOT WITH HOURLY TICKS ===
         fig, ax = plt.subplots(figsize=(16, 8))
 
         ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black', linewidth=1.2)
@@ -160,14 +159,14 @@ if st.sidebar.button("Analyze"):
                 ax.hlines(p['target'], p['date'], data_clean.index[-1],
                           color=p['color'], linestyle='--', alpha=0.8, linewidth=2)
 
-        # === SMART X-AXIS ===
+        # === SMART X-AXIS WITH HOURLY TICKS ===
         if interval == "5m":
-            # 5-minute: every 30 minutes
             ax.xaxis.set_major_locator(MinuteLocator(interval=30))
-            ax.xaxis.set_major_formatter(DateFormatter('%m-%d %H:%M'))
+            ax.xaxis.set_major_formatter(DateFormatter('%H:%M'))
         elif "h" in interval:
-            # Hourly: every 4 hours
-            ax.xaxis.set_major_locator(MinuteLocator(interval=240))
+            # Hourly: show every 2-4 hours
+            hours = 4 if "1h" in interval else 8 if "2h" in interval else 12
+            ax.xaxis.set_major_locator(HourLocator(interval=hours))
             ax.xaxis.set_major_formatter(DateFormatter('%m-%d %H:%M'))
         elif interval == "1d":
             ax.xaxis.set_major_locator(mticker.MultipleLocator(5))
@@ -216,10 +215,11 @@ if st.sidebar.button("Analyze"):
             for p in patterns:
                 t = f" → ${p['target']:.2f}" if 'target' in p else ""
                 s = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
-                st.write(f"**{p['type']}** • {p['date'].strftime('%m-%d %H:%M')} • ${p['price']:.2f}{t} • *{s}*")
+                time_str = p['date'].strftime('%m-%d %H:%M') if 'h' in interval or 'm' in interval else p['date'].strftime('%m-%d')
+                st.write(f"**{p['type']}** • {time_str} • ${p['price']:.2f}{t} • *{s}*")
         else:
             st.info("No patterns. Try `TSLA` or `NVDA`.")
 
 # === FOOTER ===
 st.sidebar.markdown("---")
-st.sidebar.markdown("Pattern Detector Pro v9.0")
+st.sidebar.markdown("Pattern Detector Pro v10.0")
