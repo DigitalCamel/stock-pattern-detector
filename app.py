@@ -8,9 +8,9 @@ import ta
 import io
 
 # === PAGE CONFIG ===
-st.set_page_config(page_title="Pro Pattern Detector", layout="wide")
+st.set_page_config(page_title="Pattern Detector Pro", layout="wide")
 st.title("Pattern Detector Pro")
-st.markdown("*Head & Shoulders • Flags • Breakouts • All Timeframes*")
+st.markdown("*H&S • Bull/Bear Flags • Breakouts • All Timeframes*")
 
 # === SIDEBAR ===
 st.sidebar.header("Settings")
@@ -42,33 +42,25 @@ if st.sidebar.button("Analyze"):
             st.error("No data. Try another ticker.")
             st.stop()
 
-        # === FIX INDEX & COLUMNS ===
         data = data.copy()
 
-        # Flatten MultiIndex columns
+        # === FIX COLUMNS ===
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = [col[0] for col in data.columns]
 
-        # Handle index
+        # === FIX INDEX ===
         if isinstance(data.index, pd.MultiIndex):
             data.index = data.index.get_level_values(0)
-        elif data.index.name in [None, 'index']:
-            data = data.reset_index()
-            if 'Date' in data.columns:
-                data.set_index('Date', inplace=True)
-            else:
-                st.error("No Date found in data.")
-                st.stop()
         else:
             data = data.reset_index()
 
-        # Final set index
+        # Set index safely
         if 'Date' in data.columns:
             data.set_index('Date', inplace=True)
-        elif 'date' in data.index.name.lower():
+        elif data.index.name and 'date' in data.index.name.lower():
             data.index.name = 'Date'
         else:
-            st.error("Could not find Date column.")
+            st.error("Could not find Date.")
             st.stop()
 
         data = data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
@@ -82,7 +74,7 @@ if st.sidebar.button("Analyze"):
         data_clean = data.dropna().copy()
 
         if len(data_clean) < 50:
-            st.error(f"Need 50+ data points. Got {len(data_clean)}.")
+            st.error(f"Need 50+ rows. Got {len(data_clean)}.")
             st.stop()
 
         # === SWINGS ===
@@ -111,13 +103,13 @@ if st.sidebar.button("Analyze"):
                 pole_low = lows['Low'].iloc[i]
                 pole_high = data_clean.loc[lows.index[i]:lows.index[i+12], 'High'].max()
                 if pole_high > pole_low * 1.2:
-                    flag_range = data_clean.loc[lows.index[i+6]:lows.index[i+12], 'High'].max() - \
-                                 data_clean.loc[lows.index[i+6]:lows.index[i+12], 'Low'].min()
-                    if flag_range < (pole_high - pole_low) * 0.5:
-                        breakout = data_clean['Close'].iloc[-1] > data_clean.loc[lows.index[i+6]:lows.index[i+12], 'High'].max()
+                    flag_high = data_clean.loc[lows.index[i+6]:lows.index[i+12], 'High'].max()
+                    flag_low = data_clean.loc[lows.index[i+6]:lows.index[i+12], 'Low'].min()
+                    if (flag_high - flag_low) < (pole_high - pole_low) * 0.5:
+                        breakout = data_clean['Close'].iloc[-1] > flag_high
                         patterns.append({
-                            "type": "Bull Flag", "date": lows.index[i+9], "price": data_clean.loc[lows.index[i+6]:lows.index[i+12], 'High'].max(),
-                            "color": "lime", "target": data_clean.loc[lows.index[i+6]:lows.index[i+12], 'High'].max() + (pole_high - pole_low),
+                            "type": "Bull Flag", "date": lows.index[i+9], "price": flag_high,
+                            "color": "lime", "target": flag_high + (pole_high - pole_low),
                             "breakout": breakout
                         })
 
@@ -178,4 +170,4 @@ if st.sidebar.button("Analyze"):
 
 # === FOOTER ===
 st.sidebar.markdown("---")
-st.sidebar.markdown("Pro Pattern Detector v5.0")
+st.sidebar.markdown("Pro Pattern Detector v6.0")
