@@ -42,27 +42,32 @@ if st.sidebar.button("Analyze"):
             st.error("No data. Try another ticker.")
             st.stop()
 
+        # === ULTIMATE DATE FIX ===
         data = data.copy()
 
-        # === FIX COLUMNS ===
+        # Flatten MultiIndex
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = [col[0] for col in data.columns]
 
-        # === FIX INDEX ===
-        if isinstance(data.index, pd.MultiIndex):
-            data.index = data.index.get_level_values(0)
-        else:
-            data = data.reset_index()
+        # Reset index to access Date
+        data = data.reset_index()
 
-        # Set index safely
-        if 'Date' in data.columns:
-            data.set_index('Date', inplace=True)
-        elif data.index.name and 'date' in data.index.name.lower():
-            data.index.name = 'Date'
-        else:
-            st.error("Could not find Date.")
+        # Find Date column (any variation)
+        date_col = None
+        for col in data.columns:
+            if str(col).lower() in ['date', 'datetime', 'time', 'index']:
+                date_col = col
+                break
+
+        if date_col is None:
+            st.error("No Date column found. Data structure unknown.")
             st.stop()
 
+        # Rename and set index
+        data = data.rename(columns={date_col: 'Date'})
+        data.set_index('Date', inplace=True)
+
+        # Keep only OHLCV
         data = data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
         data.dropna(inplace=True)
 
@@ -170,4 +175,4 @@ if st.sidebar.button("Analyze"):
 
 # === FOOTER ===
 st.sidebar.markdown("---")
-st.sidebar.markdown("Pro Pattern Detector v6.0")
+st.sidebar.markdown("Pro Pattern Detector v7.0")
