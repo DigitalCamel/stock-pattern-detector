@@ -16,7 +16,6 @@ st.markdown("*Head & Shoulders • Bull/Bear Flags • Breakouts • Hourly/Dail
 st.sidebar.header("Settings")
 ticker = st.sidebar.text_input("Ticker", value="TSLA", help="e.g., AAPL, BTC-USD, NVDA")
 
-# Timeframe mapping
 timeframe_map = {
     "Hourly (1h)": ("1h", "60d"),
     "Hourly (2h)": ("2h", "90d"),
@@ -43,31 +42,38 @@ if st.sidebar.button("Analyze"):
         interval, period = timeframe_map[selected_label]
         order = 8 if "h" in interval else 5
 
-        # DEBUG 1
-        st.write(f"Downloading {ticker} | {selected_label} | interval={interval}, period={period}")
+        st.write(f"Downloading {ticker} | {selected_label} | {interval}, {period}")
 
         # === DOWNLOAD DATA ===
         data = yf.download(ticker, period=period, interval=interval, auto_adjust=False, progress=False)
         
-        # DEBUG 2
         if data.empty:
-            st.error("No data returned from Yahoo Finance. Try a different ticker or timeframe.")
+            st.error("No data from Yahoo Finance.")
             st.stop()
+        st.write(f"Downloaded {len(data)} rows.")
+
+        # === FIX: Handle MultiIndex + Date ===
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = [col[0] for col in data.columns]  # Flatten
+        if isinstance(data.index, pd.MultiIndex):
+            data = data.copy()
+            data.reset_index(inplace=True)
+            if 'Date' in data.columns:
+                data.set_index('Date', inplace=True)
+            else:
+                data.index = data.index.get_level_values(0)
+                data = data.copy()
         else:
-            st.write(f"Downloaded {len(data)} rows of data.")
+            data.reset_index(inplace=True)
+
+        if 'Date' in data.columns:
+            data.set_index('Date', inplace=True)
+        elif data.index.name is None or 'date' not in str(data.index.name).lower():
+            st.error("Could not set Date index.")
+            st.stop()
 
         data = data[['Open', 'High', 'Low', 'Close', 'Volume']].copy()
         data.dropna(inplace=True)
-
-        # Flatten MultiIndex
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = [col[0] for col in data.columns]
-
-        data.reset_index(inplace=True)
-        if 'Date' not in data.columns:
-            st.error("No 'Date' column found after download.")
-            st.stop()
-        data.set_index('Date', inplace=True)
 
         # === INDICATORS ===
         close = data['Close'].squeeze()
@@ -77,40 +83,33 @@ if st.sidebar.button("Analyze"):
         data_clean = data.dropna().copy()
 
         if len(data_clean) < 50:
-            st.error(f"Only {len(data_clean)} valid rows after indicators. Need at least 50.")
+            st.error(f"Only {len(data_clean)} rows after indicators. Need 50+.")
             st.stop()
 
-        # DEBUG 3
-        st.write(f"After indicators: {len(data_clean)} rows. Current price: ${data_clean['Close'].iloc[-1]:.2f}")
+        st.write(f"After indicators: {len(data_clean)} rows. Price: ${data_clean['Close'].iloc[-1]:.2f}")
 
         # === SWING POINTS ===
         high_idx = argrelextrema(data_clean['High'].values, np.greater, order=order)[0]
         low_idx = argrelextrema(data_clean['Low'].values, np.less, order=order)[0]
-        st.write(f"Found {len(high_idx)} swing highs, {len(low_idx)} swing lows.")
+        st.write(f"Swing highs: {len(high_idx)}, lows: {len(low_idx)}")
 
         # === PATTERN DETECTION ===
         patterns = []
-
-        # 1. Head & Shoulders
         highs = data_clean.iloc[high_idx]
+        lows = data_clean.iloc[low_idx]
+
+        # Head & Shoulders
         if len(highs) > 4:
             for i in range(2, len(highs) - 2):
                 ls, hd, rs = highs['High'].iloc[i-2:i+1]
                 if hd > ls and hd > rs and abs(ls - rs) / hd < 0.07:
-                    neck_lows = data_clean.loc[highs.index[i-2]:highs.index[i+1], 'Low']
-                    neckline = neck_lows.min()
+                    neckline = data_clean.loc[highs.index[i-2]:highs.index[i+1], 'Low'].min()
                     patterns.append({
-                        "type": "Head & Shoulders",
-                        "date": highs.index[i],
-                        "price": hd,
-                        "neckline": neckline,
-                        "color": "purple",
-                        "target": neckline - (hd - neckline),
-                        "signal": "Bearish"
+                        "type": "Head & Shoulders", "date": highs.index[i], "price": hd,
+                        "color": "purple", "target": neckline - (hd - neckline), "signal": "Bearish"
                     })
 
-        # 2. Bull Flag
-        lows = data_clean.iloc[low_idx]
+        # Bull Flag
         if len(lows) > 12:
             for i in range(1, len(lows) - 12):
                 pole_low = lows['Low'].iloc[i]
@@ -121,16 +120,12 @@ if st.sidebar.button("Analyze"):
                     if (flag_high - flag_low) < (pole_high - pole_low) * 0.5:
                         breakout = data_clean['Close'].iloc[-1] > flag_high
                         patterns.append({
-                            "type": "Bull Flag",
-                            "date": lows.index[i+9],
-                            "price": flag_high,
-                            "color": "lime",
-                            "target": flag_high + (pole_high - pole_low),
-                            "signal": "Bullish",
-                            "breakout": breakout
+                            "type": "Bull Flag", "date": lows.index[i+9], "price": flag_high,
+                            "color": "lime", "target": flag_high + (pole_high - pole_low),
+                            "signal": "Bullish", "breakout": breakout
                         })
 
-        # 3. Bear Flag
+        # Bear Flag
         if len(highs) > 12:
             for i in range(1, len(highs) - 12):
                 pole_high = highs['High'].iloc[i]
@@ -141,54 +136,43 @@ if st.sidebar.button("Analyze"):
                     if (flag_high - flag_low) < (pole_high - pole_low) * 0.5:
                         breakdown = data_clean['Close'].iloc[-1] < flag_low
                         patterns.append({
-                            "type": "Bear Flag",
-                            "date": highs.index[i+9],
-                            "price": flag_low,
-                            "color": "red",
-                            "target": flag_low - (pole_high - pole_low),
-                            "signal": "Bearish",
-                            "breakout": breakdown
+                            "type": "Bear Flag", "date": highs.index[i+9], "price": flag_low,
+                            "color": "red", "target": flag_low - (pole_high - pole_low),
+                            "signal": "Bearish", "breakout": breakdown
                         })
 
-        # 4. Volume Breakout
+        # Volume Breakout
         avg_vol = data_clean['Volume'].rolling(20).mean().iloc[-1]
-        if (data_clean['Volume'].iloc[-1] > avg_vol * 2 and
-            data_clean['Close'].iloc[-1] > data_clean['High'].iloc[-10:-1].max()):
+        if data_clean['Volume'].iloc[-1] > avg_vol * 2 and data_clean['Close'].iloc[-1] > data_clean['High'].iloc[-10:-1].max():
             patterns.append({
-                "type": "Volume Breakout",
-                "date": data_clean.index[-1],
-                "price": data_clean['Close'].iloc[-1],
-                "color": "gold",
-                "signal": "Bullish"
+                "type": "Volume Breakout", "date": data_clean.index[-1],
+                "price": data_clean['Close'].iloc[-1], "color": "gold", "signal": "Bullish"
             })
 
-        # === FINAL OUTPUT ===
-        st.success(f"Analysis Complete! Found {len(patterns)} pattern(s).")
+        # === OUTPUT ===
+        st.success(f"Found {len(patterns)} pattern(s)!")
 
         col1, col2 = st.columns(2)
         with col1:
+            st.metric("Patterns", len(patterns))
             st.metric("Data Points", len(data_clean))
-            st.metric("Patterns Found", len(patterns))
         with col2:
-            current_price = data_clean['Close'].iloc[-1]
-            st.metric("Current Price", f"${current_price:.2f}")
+            st.metric("Price", f"${data_clean['Close'].iloc[-1]:.2f}")
             active = [p for p in patterns if "breakout" not in p or p["breakout"]]
-            st.metric("Active Signals", len(active))
+            st.metric("Active", len(active))
 
         # === PLOT ===
         fig, ax = plt.subplots(figsize=(16, 8))
-        ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black', linewidth=1)
+        ax.plot(data_clean.index, data_clean['Close'], label='Close', color='black')
         ax.plot(data_clean['SMA_20'], label='SMA 20', color='orange', alpha=0.7)
         ax.plot(data_clean['SMA_50'], label='SMA 50', color='blue', alpha=0.7)
 
         for p in patterns:
             ax.scatter(p['date'], p['price'], color=p['color'], s=150, zorder=6, edgecolors='black')
             status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
-            ax.text(p['date'], p['price'], f" {p['type']}\n{status}", 
-                    fontsize=9, color=p['color'], weight='bold', ha='center', va='bottom')
+            ax.text(p['date'], p['price'], f" {p['type']}\n{status}", fontsize=9, color=p['color'], weight='bold', ha='center')
             if 'target' in p:
-                ax.hlines(p['target'], p['date'], data_clean.index[-1],
-                          color=p['color'], linestyle='--', alpha=0.7, linewidth=1)
+                ax.hlines(p['target'], p['date'], data_clean.index[-1], color=p['color'], linestyle='--', alpha=0.7)
 
         ax.set_title(f"{ticker} • {selected_label} • {len(patterns)} Patterns", fontsize=16)
         ax.set_ylabel("Price ($)")
@@ -201,18 +185,18 @@ if st.sidebar.button("Analyze"):
         buf.seek(0)
 
         st.pyplot(fig)
-        st.download_button("Download Chart", buf.getvalue(), f"{ticker}_{selected_label}_Patterns.png", "image/png")
+        st.download_button("Download Chart", buf.getvalue(), f"{ticker}_{selected_label}_chart.png", "image/png")
 
-        # === LIST PATTERNS ===
+        # === LIST ===
         if patterns:
-            st.subheader("Detected Patterns")
+            st.subheader("Patterns")
             for p in patterns:
                 status = "LIVE" if "breakout" not in p or p["breakout"] else "Pending"
-                target_str = f" → Target: ${p['target']:.2f}" if 'target' in p else ""
-                st.write(f"**{p['type']}** • {p['date'].date()} • ${p['price']:.2f}{target_str} • *{status}*")
+                target = f" → ${p['target']:.2f}" if 'target' in p else ""
+                st.write(f"**{p['type']}** • {p['date'].date()} • ${p['price']:.2f}{target} • *{status}*")
         else:
-            st.info("No patterns found. Try `TSLA` on **Hourly** or `NVDA` on **Daily**.")
+            st.info("No patterns. Try `TSLA` or `BTC-USD`.")
 
 # === FOOTER ===
 st.sidebar.markdown("---")
-st.sidebar.markdown("Pro Pattern Detector v3.0")
+st.sidebar.markdown("Pro Pattern Detector v4.0")
